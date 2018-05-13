@@ -1,0 +1,15 @@
+---
+# tasks file for timarenz.vpc
+- name: "Check required variables"
+  fail:
+    msg: "Variable '{{ item }}' is not defined"
+  when: item not in vars
+  with_items: "{{ required_vars }}"
+
+- name: Create VPC when environmen_state is set to present
+  include_tasks: "create.yml"
+  when: environment_state == "present"
+
+- name: Delete VPC when environmen_state is set to absent
+  include_tasks: "delete.yml"
+  when: environment_state == "absent"

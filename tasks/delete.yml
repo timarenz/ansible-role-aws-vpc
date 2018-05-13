@@ -1,0 +1,122 @@
+---
+- name: "Get facts about the VPC to delete"
+  ec2_vpc_net_facts:
+    filters:
+      "tag:Name": "{{ environment_name }}-vpc"
+  register: vpc_result
+  ignore_errors: true
+
+- name: "Register VPC id as fact"
+  set_fact:
+    vpc_id: "{{ vpc_result.vpcs.0.id }}"
+  ignore_errors: true
+
+- name: "VPC result"
+  debug:
+    var: vpc_result
+    verbosity: 3
+
+- name: "Get all ec2 instances of VPC"
+  ec2_instance_facts:
+    filters:
+      vpc-id: "{{ vpc_id }}"
+  register: vpc_instance_result
+  when: vpc_terminate_instances
+
+- name: "Terminate all instances of this particular VPC"
+  ec2:
+    instance_id: "{{ item.instance_id }}"
+    state: "{{ environment_state }}"
+    wait: true
+  with_items: 
+    - "{{ vpc_instance_result.instances }}"
+  when: vpc_terminate_instances
+
+- name: "Get facts about all nat gateways of VPC"
+  ec2_vpc_nat_gateway_facts:
+    filters:
+      vpc-id: "{{ vpc_id }}"
+  register: vpc_nat_gateway_result
+  ignore_errors: true
+
+- name: "Nat gateway result"
+  debug:
+    var: vpc_nat_gateway_result
+    verbosity: 3
+
+- name: "Delete nat gateway and release EIP"
+  ec2_vpc_nat_gateway:
+    state: "{{ environment_state }}"
+    nat_gateway_id: "{{ item.nat_gateway_id }}"
+    release_eip: yes
+    wait: yes
+  with_items: "{{ vpc_nat_gateway_result.result }}"
+
+- name: "Get facts about all internet gateways of VPC"
+  ec2_vpc_igw_facts:
+    filters:
+      attachment.vpc-id: "{{ vpc_id }}"
+  register: vpc_igw_result
+  ignore_errors: true
+
+- name: "Internet gateway result"
+  debug:
+    var: vpc_igw_result
+    verbosity: 3
+
+- name: "Delete all internet gateways"
+  ec2_vpc_igw:
+    vpc_id: "{{ vpc_id }}"
+    state: "{{ environment_state }}"
+  with_items: "{{ vpc_igw_result.internet_gateways }}"
+  ignore_errors: true
+
+- name: "Get facts about all subnets of VPC"
+  ec2_vpc_subnet_facts:
+    filters:
+      vpc-id: "{{ vpc_id }}"
+  register: vpc_subnets_result
+  ignore_errors: true
+
+- name: "Subnet result"
+  debug:
+    var: vpc_subnets_result
+    verbosity: 3
+
+- name: "Delete all subnets"
+  ec2_vpc_subnet:
+    state: "{{ environment_state }}"
+    vpc_id: "{{ item.vpc_id }}"
+    cidr: "{{ item.cidr_block }}"
+  with_items: "{{ vpc_subnets_result.subnets }}"
+  ignore_errors: true
+
+- name: "Get facts about all route tables of VPC"
+  ec2_vpc_route_table_facts:
+    filters:
+      vpc-id: "{{ vpc_id }}"
+      # "association.main": "false"
+  register: vpc_route_tables_result
+  ignore_errors: true
+
+- name: "Route table result"
+  debug:
+    var: vpc_route_tables_result
+    verbosity: 3
+
+- name: "Delete all route tables"
+  ec2_vpc_route_table:
+    route_table_id: "{{ item.id }}"
+    vpc_id: "{{ item.vpc_id }}"
+    tags:
+      Name: "{{ item.tags.Name }}"
+    state: "{{ environment_state }}"
+  with_items: "{{ vpc_route_tables_result.route_tables }}"
+  ignore_errors: true
+
+- name: "Delete VPC itself"
+  ec2_vpc_net:
+    name: "{{ vpc_result.vpcs.0.tags.Name }}"
+    cidr_block: "{{ vpc_result.vpcs.0.cidr_block }}"
+    state: "{{ environment_state }}"
+  ignore_errors: true

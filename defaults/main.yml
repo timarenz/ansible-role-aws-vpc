@@ -1,0 +1,20 @@
+---
+# defaults file for timarenz.vpc
+
+# Required variables that need to be set when this role is included
+required_vars:
+  # Name of the environment you want to provision, will be used as identifier (name tag) in AWS
+  - environment_name
+
+# Default state of the environment
+environment_state: "present"
+# Default region for this VPC
+vpc_region: "{{ lookup('env','AWS_REGION') }}"
+# Default CIDR block for the VPC created
+vpc_cidr_block: 192.168.0.0/16
+# Default public subnet, needs to be part of the CIDR block 
+vpc_public_subnet: 192.168.1.0/24
+# Default private subnet, needs to be part of the CIDR block 
+vpc_private_subnet: 192.168.2.0/24
+# Terminate all instances associated with this VPC
+vpc_terminate_instances: false

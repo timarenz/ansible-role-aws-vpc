@@ -1,0 +1,125 @@
+---
+- name: "Create VPC"
+  ec2_vpc_net:
+    name: "{{ environment_name }}-vpc"
+    cidr_block: "{{ vpc_cidr_block }}"
+    region: "{{ vpc_region }}"
+    state: "{{ environment_state }}"
+  register: vpc_result
+
+- debug:
+    var: vpc_result
+    verbosity: 3
+
+- name: "Register VPC id as fact"
+  set_fact:
+    vpc_id: "{{ vpc_result.vpc.id }}"
+
+- name: "Register VPC name as fact"
+  set_fact:
+    vpc_name: "{{ vpc_result.vpc.tags.Name }}"
+
+- name: "Create public subnet"
+  ec2_vpc_subnet:
+    vpc_id: "{{ vpc_id }}"
+    cidr: "{{ vpc_public_subnet }}"
+    map_public: true
+    resource_tags:
+      Name: "{{ environment_name }}-public-subnet"
+    state: "{{ environment_state }}"
+  register: vpc_public_subnet_result
+
+- debug:
+    var: vpc_public_subnet_result
+    verbosity: 3
+
+- name: "Register public subnet id as fact"
+  set_fact:
+    vpc_public_subnet_id: "{{ vpc_public_subnet_result.subnet.id }}"
+
+- name: "Register public subnet name as fact"
+  set_fact:
+    vpc_public_subnet_name: "{{ vpc_public_subnet_result.subnet.tags.Name }}"
+
+- name: "Register public subnet availability zone as fact"
+  set_fact:
+    vpc_public_subnet_az: "{{ vpc_public_subnet_result.subnet.availability_zone }}"
+
+- name: "Create private subnet"
+  ec2_vpc_subnet:
+    vpc_id: "{{ vpc_id }}"
+    cidr: "{{ vpc_private_subnet }}"
+    resource_tags:
+      Name: "{{ environment_name }}-private-subnet"
+    state: "{{ environment_state }}"
+  register: vpc_private_subnet_result
+
+- debug:
+    var: vpc_private_subnet_result
+    verbosity: 3
+
+- name: "Register private subnet id as fact"
+  set_fact:
+    vpc_private_subnet_id: "{{ vpc_private_subnet_result.subnet.id }}"
+
+- name: "Register private subnet name as fact"
+  set_fact:
+    vpc_private_subnet_name: "{{ vpc_private_subnet_result.subnet.tags.Name }}"
+
+- name: "Register private subnet availability zone as fact"
+  set_fact:
+    vpc_private_subnet_az: "{{ vpc_private_subnet_result.subnet.availability_zone }}"
+
+- name: "Create internet gateway"
+  ec2_vpc_igw:
+    vpc_id: "{{ vpc_id }}"
+    state: "{{ environment_state }}"
+  register: vpc_igw_result
+
+- debug:
+    var: vpc_igw_result
+    verbosity: 3
+
+- name: "Set up public subnet route table"
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc_id }}"
+    tags:
+      Name: "{{ environment_name }}-rt-public"
+    subnets:
+      - "{{ vpc_public_subnet_id }}"
+    routes:
+      - dest: 0.0.0.0/0
+        gateway_id: "{{ vpc_igw_result.gateway_id }}"
+
+- name: "Create nat gateway and allocate new EIP"
+  ec2_vpc_nat_gateway:
+    state: "{{ environment_state }}"
+    subnet_id: "{{ vpc_public_subnet_id }}"
+    wait: yes
+    if_exist_do_not_create: yes
+  register: vpc_nat_gateway
+
+- name: "Get facts about the main route tables of VPC"
+  ec2_vpc_route_table_facts:
+    filters:
+      vpc-id: "{{ vpc_id }}"
+      association.main: "true"
+  register: vpc_main_route_tables_result
+
+- name: "Main route table result"
+  debug:
+    var: vpc_main_route_tables_result
+    verbosity: 3
+
+- name: "Add nat gateway to main route table"
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc_id }}"
+    route_table_id: "{{ vpc_main_route_tables_result.route_tables.0.id }}"
+    lookup: id
+    tags:
+      Name: "{{ environment_name }}-rt-main"
+    subnets: 
+      - "{{ vpc_private_subnet_id }}"
+    routes:
+      - dest: 0.0.0.0/0
+        gateway_id: "{{ vpc_nat_gateway.nat_gateway_id }}"
